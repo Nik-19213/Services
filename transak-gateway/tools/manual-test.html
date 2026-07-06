@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Transak Gateway — Manual Test Page</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; margin-top: 2.5rem; border-top: 1px solid #ddd; padding-top: 1.5rem; }
+  label { display: block; margin: 0.6rem 0 0.2rem; font-size: 0.85rem; color: #555; }
+  input, select { width: 100%; padding: 6px 8px; box-sizing: border-box; font-size: 0.95rem; }
+  button { margin-top: 1rem; padding: 8px 16px; cursor: pointer; }
+  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .status-ok { color: #0a7d2c; }
+  .status-err { color: #c0392b; }
+  iframe { width: 100%; height: 600px; border: 1px solid #ccc; margin-top: 1rem; }
+  a.widget-link { display: inline-block; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+
+<h1>Transak Gateway — Manual Test Page</h1>
+<p>Talks directly to your locally running backend. Keep <code>npm run dev</code> running while you use this.</p>
+
+<label>Backend base URL</label>
+<input id="baseUrl" value="http://localhost:4000/api/v1" />
+
+<h2>1. Sign up or log in</h2>
+<div class="row">
+  <div>
+    <label>Email</label>
+    <input id="email" value="tester@example.com" />
+  </div>
+  <div>
+    <label>Password (min 8 chars)</label>
+    <input id="password" type="password" value="correcthorsebattery" />
+  </div>
+</div>
+<button onclick="signup()">Sign Up</button>
+<button onclick="login()">Log In</button>
+<pre id="authOut">(not logged in yet)</pre>
+
+<h2>2. Create a widget session (order)</h2>
+<div class="row">
+  <div>
+    <label>Type</label>
+    <select id="type">
+      <option value="BUY">BUY</option>
+      <option value="SELL">SELL</option>
+    </select>
+  </div>
+  <div>
+    <label>Crypto currency</label>
+    <input id="cryptoCurrency" value="ETH" />
+  </div>
+  <div>
+    <label>Fiat currency</label>
+    <input id="fiatCurrency" value="USD" />
+  </div>
+</div>
+<div class="row">
+  <div>
+    <label>Fiat amount</label>
+    <input id="fiatAmount" value="50" />
+  </div>
+  <div>
+    <label>Wallet address (required for SELL)</label>
+    <input id="walletAddress" value="" />
+  </div>
+</div>
+<button onclick="createSession()">Create Session</button>
+<pre id="sessionOut">(no session yet)</pre>
+<a id="widgetLink" class="widget-link" target="_blank" style="display:none">Open widget URL in a new tab ↗</a>
+<iframe id="widgetFrame" style="display:none"></iframe>
+
+<h2>3. List / check your orders</h2>
+<button onclick="listOrders()">List My Orders</button>
+<pre id="ordersOut">(nothing fetched yet)</pre>
+
+<script>
+let token = null;
+
+function base() { return document.getElementById('baseUrl').value.replace(/\/$/, ''); }
+
+async function call(path, opts = {}) {
+  const res = await fetch(base() + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  const text = await res.text();
+  let body;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { status: res.status, body };
+}
+
+function show(el, status, body) {
+  el.innerHTML = '';
+  const cls = status >= 200 && status < 300 ? 'status-ok' : 'status-err';
+  el.innerHTML = `<span class="${cls}">HTTP ${status}</span>\n` + JSON.stringify(body, null, 2);
+}
+
+async function signup() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const { status, body } = await call('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password }) });
+  if (body && body.token) token = body.token;
+  show(document.getElementById('authOut'), status, body);
+}
+
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const { status, body } = await call('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  if (body && body.token) token = body.token;
+  show(document.getElementById('authOut'), status, body);
+}
+
+async function createSession() {
+  if (!token) { alert('Sign up or log in first.'); return; }
+  const payload = {
+    type: document.getElementById('type').value,
+    cryptoCurrency: document.getElementById('cryptoCurrency').value,
+    fiatCurrency: document.getElementById('fiatCurrency').value,
+    fiatAmount: Number(document.getElementById('fiatAmount').value) || undefined,
+    walletAddress: document.getElementById('walletAddress').value || undefined,
+  };
+  const { status, body } = await call('/widget/session', { method: 'POST', body: JSON.stringify(payload) });
+  show(document.getElementById('sessionOut'), status, body);
+
+  const link = document.getElementById('widgetLink');
+  const frame = document.getElementById('widgetFrame');
+  if (body && body.widgetUrl) {
+    link.href = body.widgetUrl;
+    link.style.display = 'inline-block';
+    frame.src = body.widgetUrl;
+    frame.style.display = 'block';
+  } else {
+    link.style.display = 'none';
+    frame.style.display = 'none';
+  }
+}
+
+async function listOrders() {
+  if (!token) { alert('Sign up or log in first.'); return; }
+  const { status, body } = await call('/orders', { method: 'GET' });
+  show(document.getElementById('ordersOut'), status, body);
+}
+</script>
+
+</body>
+</html>
