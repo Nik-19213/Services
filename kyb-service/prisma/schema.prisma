@@ -1,0 +1,44 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// One row per business address the platform has ever seen go through KYB,
+// mirroring (but not replacing) OrganizationRegistry's own on-chain status --
+// this table is the audit trail of *why* an on-chain call was made.
+model Organization {
+  address      String   @id
+  name         String?
+  jurisdiction String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  kybSessions KybSession[]
+}
+
+// One row per Didit verification session. A business may retry KYB, so this
+// is 1-to-many against Organization, not a single embedded status field.
+model KybSession {
+  id                String   @id @default(cuid())
+  orgAddress        String
+  organization      Organization @relation(fields: [orgAddress], references: [address])
+
+  diditSessionId    String   @unique
+  diditWorkflowId   String
+  status            String   @default("Not Started")
+  decision          Json?
+  verificationUrl   String?
+
+  onChainTxHash     String?
+  onChainVerifiedAt DateTime?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([orgAddress])
+  @@index([status])
+}
